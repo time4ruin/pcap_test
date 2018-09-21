@@ -1,42 +1,64 @@
+#define ETHERTYPE_IP 0x0800
+
 #include <pcap.h>
 #include <stdio.h>
 #include <arpa/inet.h>
+#include <stdint.h>
 
 struct eth_header{
-  u_char dst_mac[6];
-  u_char src_mac[6];
-  u_short prt_type;
+  uint8_t dst_mac[6];
+  uint8_t src_mac[6];
+  uint16_t prt_type;
 };
 
 struct ip_header{
-  u_char ver4_hlen4; //version 4bit + header length 4bit
-  u_char DSF; //Differentiated Serviced Field
-  u_short totallen;
-  u_short id;
-  u_short fragoffset;
-  u_char ttl; //Time to live
-  u_char protocol;
-  u_short hchecksum;
-  u_char src_ip[4];
-  u_char dst_ip[4];
+  uint8_t ver4_hlen4; //version 4bit + header length 4bit
+  uint8_t DSF; //Differentiated Serviced Field
+  uint16_t totallen;
+  uint16_t id;
+  uint16_t fragoffset;
+  uint8_t ttl; //Time to live
+  uint8_t protocol;
+  uint16_t hchecksum;
+  uint32_t src_ip;
+  uint32_t dst_ip;
 }; //can be up to 40 optional bytes
 
 struct tcp_header{
-  u_short src_port;
-  u_short dst_port;
-  u_int seqnum;
-  u_int acknum;
-  u_short hlen4_flags12; //header length 4bit + flags 12bit
-  u_short wsize; //window size
-  u_short checksum;
-  u_short urgent_pointer;
+  uint16_t src_port;
+  uint16_t dst_port;
+  uint32_t seqnum;
+  uint32_t acknum;
+  uint8_t hlen4_rsv4; //header length 4bit + reserved 4bit
+  uint8_t flags;
+  uint16_t wsize; //window size
+  uint16_t checksum;
+  uint16_t urgent_pointer;
 }; //can be up to 20 optional bytes
 
-struct eth_header *eth;
-struct ip_header *ip;
-struct tcp_header *tcp;
+void print_mac(uint8_t *p){
+	for (int j = 0; j < 6; j++){
+		printf("%02X", p[j]);
+		if (j!=5) printf(":");
+	}
+	printf("\n");
+}
 
-void dump(const u_char* p, int len){
+void print_ip(uint32_t p){
+	for (int i = 0; i < 4; i++){
+		printf("%d", p & 0xff);
+		p = p >> 8;
+		if (i != 3) printf(".");
+	}
+	printf("\n");
+}
+
+void dump(const uint8_t* p, int len){
+
+	struct eth_header *eth;
+	struct ip_header *ip;
+	struct tcp_header *tcp;
+
 	/*
 	for(int i = 0; i < len; i++){
 		printf("%02x ", *(p+i));
@@ -49,65 +71,41 @@ void dump(const u_char* p, int len){
 	/* Ethernet Header */
 	eth = (struct eth_header *)p;
 	printf("Source MAC: ");
-	for (int j = 0; j < 6; j++){
-		printf("%02X", eth->src_mac[j]);
-		if (j!=5) printf(":");
-	}
-	printf("\nDestination MAC: ");
-	for (int j = 0; j < 6; j++){
-		printf("%02X", eth->dst_mac[j]);
-		if (j!=5) printf(":");
-	}
-	printf("\n");
-	if (ntohs(eth->prt_type) == 0x0800){ // if IPv4 (0x0800 in little endian)
-		p += 14;
+	print_mac(eth->src_mac);
+	printf("Destination MAC: ");
+	print_mac(eth->dst_mac);
+	if (ntohs(eth->prt_type) == ETHERTYPE_IP){ // if IPv4 (0x0800 in little endian)
+		p += sizeof(struct eth_header);
 		/* IP Header */
 		ip = (struct ip_header *)p;
 		printf("Source IP: ");
-		for (int j = 0; j < 4; j++){
-			printf("%d", ip->src_ip[j]);
-			if (j!=3) printf(".");
-		}
-		printf("\nDestination IP: ");
-		for (int j = 0; j < 4; j++){
-			printf("%d", ip->dst_ip[j]);
-			if (j!=3) printf(".");
-		}
-		printf("\n");
-		if (ip->protocol == 0x06){ // if TCP
+		print_ip(ip->src_ip);
+		printf("Destination IP: ");
+		print_ip(ip->dst_ip);
+		if (ip->protocol == IPPROTO_TCP){ // if TCP
 			p += ((ip->ver4_hlen4 & 0x0f) * 4);
 			/* TCP Header */
 			tcp = (struct tcp_header *)p;
 			printf("Source Port: %d\n", ntohs(tcp->src_port));
 			printf("Destination Port: %d\n", ntohs(tcp->dst_port));
 			
-			p += ((ntohs(tcp->hlen4_flags12) & 0xf000) >> 12) * 4; 
 			/* Data */
 			int Totallen = ntohs(ip->totallen);
 			int IPlen = (ip->ver4_hlen4 & 0x0f) * 4;
-			int TCPlen = ((ntohs(tcp->hlen4_flags12) & 0xf000) >> 12) * 4;
+			int TCPlen = ((tcp->hlen4_rsv4 & 0xf0) >> 4) * 4;
+			p += TCPlen;
 
 			int Datalen = Totallen - IPlen - TCPlen;
-			if (Datalen > 32){
-				for (int j = 0; j < 32; j++){
-					printf("%02X ", *p);
-				if ((j & 0x0f) == 0x0f){
-					printf("\n");
-					}
-					p++;
-				}
-				printf("...\n");
-			}
-			else{
-				for (int j = 0; j < Datalen; j++){
-					printf("%02X ", *p);
-					if ((j & 0x0f) == 0x0f){
-						printf("\n");
-					}
-					p++;
-				}
+			int writelen = Datalen > 32 ? 32 : Datalen;
+			for (int j = 0; j < writelen; j++){
+				printf("%02X ", *p);
+			if ((j & 0x0f) == 0x0f){
 				printf("\n");
+				}
+				p++;
 			}
+			printf("\n");
+			if (writelen > 32) printf("...\n");
 		}
 	}
 	printf("\n");
@@ -134,7 +132,7 @@ int main(int argc, char* argv[]) {
 
   while (true) {
     struct pcap_pkthdr* header;
-    const u_char* packet;
+    const uint8_t* packet;
     int res = pcap_next_ex(handle, &header, &packet);
     if (res == 0) continue;
     if (res == -1 || res == -2) break;
