@@ -96,7 +96,7 @@ void dump(const uint8_t* p, int len){
 			p += TCPlen;
 
 			int Datalen = Totallen - IPlen - TCPlen;
-			int writelen = Datalen > 32 ? 32 : Datalen;
+			int writelen = Datalen > 10 ? 10 : Datalen;
 			for (int j = 0; j < writelen; j++){
 				printf("%02X ", *p);
 			if ((j & 0x0f) == 0x0f){
@@ -105,7 +105,7 @@ void dump(const uint8_t* p, int len){
 				p++;
 			}
 			printf("\n");
-			if (writelen > 32) printf("...\n");
+			if (writelen > 10) printf("...\n");
 		}
 	}
 	printf("\n");
